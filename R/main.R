@@ -5,21 +5,65 @@
 #' for storing and managing structured data in R.
 #' It supports CRUD operations (Create, Read, Update, Delete)
 #' and enables querying with custom functions.
-#' @importFrom jsonlite fromJSON write_json
-#' @importFrom purrr keep safely
+#' @importFrom yyjsonr read_json_file write_json_file
+#' @importFrom purrr keep safely map
 #' @importFrom R6 R6Class
-#' @importFrom rlang eval_tidy parse_expr
+#' @importFrom rlang eval_tidy parse_expr abort
+#' @importFrom cli cli_alert_success cli_text cli_alert_info cli_abort
 #' @export
 rlowdb <- R6::R6Class(
   "rlowdb",
   public = list(
-
     #' @description Initialize the database, loading data from a JSON file.
     #' If the file does not exist, an empty database is created.
     #' @param file_path The path to the JSON file that stores the database.
-    initialize = function(file_path) {
+    #' @param default_values A list of named list with the format:
+    #' list(collection_name = list(key_name_1 = value, key_name_2 = value, ..., key_name_n = value))
+    #' containing the default values that will be inserted each time the `insert` method is called.
+    #' Note that the default_values will not override the existing records.
+    #' Default is an empty list (`list()`).
+    #' @param auto_commit whether to update the DB automatically each time
+    #' there's an insertion, an update or a deletion. Defaults to TRUE.s
+    #' Note that you can use the `commit` method to update the DB manually.
+    #' @param verbose If TRUE, will print informative messages to the console.
+    #' Defaults to FALSE
+    #' @param pretty Use pretty = FALSE for compact JSON,
+    #' which is more efficient for data transmission and storage. TRUE for a
+    #' human readable format. Defaults to FALSE.
+    initialize = function(
+    file_path,
+    default_values = list(),
+    auto_commit = TRUE,
+    verbose = FALSE,
+    pretty = FALSE
+    ) {
+
+      if (!auto_commit) {
+        cli::cli_alert_info(
+          "{.strong 'auto_commit' is set to FALSE, to persist your changes,
+          within the JSON DB, use the 'commit' method.}"
+        )
+      }
+
+      file_extension <- tolower(tools::file_ext(file_path))
+
+      if (!file_extension == "json") {
+        cli::cli_abort(
+          "{file_path} is not of JSON format"
+        )
+      }
+
       private$.file_path <- file_path
+      private$.auto_commit <- auto_commit
+      private$.verbose <- verbose
+      private$.default_values <- default_values
+      private$.pretty <- pretty
       private$.read_data()
+    },
+
+    #' @description Update the DB with the operated changes.
+    commit = function() {
+      private$.write_data()
     },
 
     #' @description Retrieve all stored data.
@@ -34,21 +78,90 @@ rlowdb <- R6::R6Class(
       private$.data
     },
 
+    #' @description Retrieve data from a specific collection.
+    #' @param collection The name of the collection
+    #' @return A list containing a specific collection's records.
+    #' @examples
+    #' db <- rlowdb$new("database.json")
+    #' db$insert("users", list(id = 1, name = "Alice"))
+    #' db$get_data_collection("users")
+    #' unlink("database.json")
+
+    get_data_collection = function(collection) {
+      if (!collection %in% names(private$.data)) {
+        rlang::abort(sprintf("Error: Collection '%s' does not exist.", collection))
+      }
+
+      private$.data[[collection]]
+    },
+
+    #' @description Retrieve the records of a specific key within a collection
+    #' @param collection The name of the collection
+    #' @param key The key name
+    #' @return A vector/list containing a specific key's records.
+    #' @examples
+    #' db <- rlowdb$new("database.json")
+    #' db$insert("users", list(id = 1, name = "Alice"))
+    #' db$insert("users", list(id = 2, name = "Omar"))
+    #' db$get_data_key("users", "name")
+    #' unlink("database.json")
+
+    get_data_key = function(collection, key) {
+
+      if (!collection %in% names(private$.data)) {
+        rlang::abort(sprintf("Error: Collection '%s' does not exist.", collection))
+      }
+
+      if (!any(sapply(private$.data[[collection]], function(item) key %in% names(item)))) {
+        rlang::abort(sprintf("Error: Key '%s' does not exist in collection '%s'.", key, collection))
+      }
+
+      sapply(private$.data[[collection]], function(x) {
+        x[[key]]
+      })
+    },
+
     #' @description Insert a new record into a specified collection.
     #' @param collection The collection name (a string).
     #' @param record A named list representing the record to insert.
     #' @examples
-    #' db <- rlowdb$new("database.json")
+    #' db <- rlowdb$new("database.json", default_values = list(
+    #'   "users" = list("active" = TRUE)
+    #'  )
+    #' )
     #' db$insert("users", list(id = 1, name = "Alice"))
     #' unlink("database.json")
     #'
     insert = function(collection, record) {
+
       if (!is.list(record) || is.null(names(record)) || !all(nzchar(names(record)))) {
-        stop("Error: 'record' must be a named list with valid field names.")
+        rlang::abort("Error: 'record' must be a named list with valid field names.")
       }
+
       private$.ensure_key(collection)
+
+      private$.validate_record(collection, record)
+
+      default_values <- private$.default_values[[collection]]
+
+      if (!is.null(default_values)) {
+        record <- purrr::list_modify(default_values, !!!record)
+      }
+
       private$.data[[collection]] <- append(private$.data[[collection]], list(record))
-      private$.write_data()
+
+      if (private$.verbose) {
+        cli::cli_alert_success(
+          "record successfully inserted into collection '{collection}'"
+        )
+      }
+
+      if (private$.auto_commit) {
+        private$.write_data()
+      }
+
+      invisible(self)
+
     },
 
     #' @description Find records in a collection that match a given key-value pair.
@@ -67,7 +180,9 @@ rlowdb <- R6::R6Class(
       if (length(index) > 0) {
         return(private$.data[[collection]][index])
       } else {
-        message(sprintf("No record found in '%s' where '%s' = '%s'.", collection, key, value))
+        cli::cli_alert_warning(
+          sprintf("No record found in '%s' where '%s' = '%s'.", collection, key, value)
+        )
         return(list())
       }
     },
@@ -84,14 +199,31 @@ rlowdb <- R6::R6Class(
     #' unlink("database.json")
     #'
     update = function(collection, key, value, new_data) {
+
+      if (!is.list(new_data) || is.null(names(new_data)) || !all(nzchar(names(new_data)))) {
+        rlang::abort("Error: 'new_data' must be a named list with valid field names.")
+      }
+
       index <- private$.find_index_by_key(collection, key, value)
       if (length(index) > 0) {
         for (i in index) {
           private$.data[[collection]][[i]] <- modifyList(private$.data[[collection]][[i]], new_data)
         }
-        private$.write_data()
+
+        if (private$.verbose) {
+          cli::cli_alert_success(
+            "Value {value} successfully updated with {new_data}"
+          )
+        }
+
+        if (private$.auto_commit) {
+          private$.write_data()
+        }
+
+        invisible(self)
+
       } else {
-        stop(sprintf("Error: No record found in '%s' where '%s' = '%s'.", collection, key, value))
+        rlang::abort(sprintf("Error: No record found in '%s' where '%s' = '%s'.", collection, key, value))
       }
     },
 
@@ -109,12 +241,18 @@ rlowdb <- R6::R6Class(
     #' unlink("database.json")
     #'
     upsert = function(collection, key, value, new_data) {
+
+      if (!is.list(new_data) || is.null(names(new_data)) || !all(nzchar(names(new_data)))) {
+        rlang::abort("Error: 'new_data' must be a named list with valid field names.")
+      }
+
       if (self$exists_value(collection, key, value)) {
         self$update(collection, key, value, new_data)
       } else {
         record <- c(setNames(list(value), key), new_data)
         self$insert(collection, record)
       }
+
     },
 
     #' @description Delete records from a collection that match a given key-value pair.
@@ -132,9 +270,21 @@ rlowdb <- R6::R6Class(
       index <- private$.find_index_by_key(collection, key, value)
       if (length(index) > 0) {
         private$.data[[collection]] <- private$.data[[collection]][-index]
-        private$.write_data()
+
+        if (private$.verbose) {
+          cli::cli_alert_success(
+            "Value {value} successfully deleted from key '{key}': collection '{collection}'"
+          )
+        }
+
+        if (private$.auto_commit) {
+          private$.write_data()
+        }
+
+        invisible(self)
+
       } else {
-        stop(sprintf("Error: No record found in '%s' where '%s' = '%s'.", collection, key, value))
+        rlang::abort(sprintf("Error: No record found in '%s' where '%s' = '%s'.", collection, key, value))
       }
     },
 
@@ -171,7 +321,7 @@ rlowdb <- R6::R6Class(
     #' unlink("database.json")
     query = function(collection, condition = NULL) {
       if (!collection %in% names(private$.data)) {
-        stop(sprintf("Error: Collection '%s' does not exist.", collection))
+        rlang::abort(sprintf("Error: Collection '%s' does not exist.", collection))
       }
 
       records <- private$.data[[collection]]
@@ -184,7 +334,7 @@ rlowdb <- R6::R6Class(
         tryCatch({
           rlang::eval_tidy(rlang::parse_expr(condition), data = record)
         }, error = function(e) {
-          stop(sprintf("Error in evaluating condition: '%s'", condition))
+          rlang::abort(sprintf("Error in evaluating condition: '%s'", condition))
         })
       })
 
@@ -212,11 +362,11 @@ rlowdb <- R6::R6Class(
     filter = function(collection, filter_fn) {
 
       if (!is.function(filter_fn)) {
-        stop("Error: 'filter_fn' must be a function.")
+        rlang::abort("Error: 'filter_fn' must be a function.")
       }
 
       if (!collection %in% names(private$.data)) {
-        stop(sprintf("Error: Collection '%s' does not exist.", collection))
+        rlang::abort(sprintf("Error: Collection '%s' does not exist.", collection))
       }
 
       safe_filter_fn <- purrr::safely(filter_fn, otherwise = FALSE)
@@ -239,12 +389,20 @@ rlowdb <- R6::R6Class(
     drop = function(collection) {
 
       if (!collection %in% names(private$.data)) {
-        stop(sprintf("Error: Collection '%s' does not exist.", collection))
+        rlang::abort(sprintf("Error: Collection '%s' does not exist.", collection))
       }
 
       private$.data[[collection]] <- NULL
 
-      private$.write_data()
+      if (private$.verbose) {
+        cli::cli_alert_success("'{collection}' successfully droped")
+      }
+
+      if (private$.auto_commit) {
+        private$.write_data()
+      }
+
+      invisible(self)
 
     },
 
@@ -262,7 +420,15 @@ rlowdb <- R6::R6Class(
         private$.data[[collection]] <- NULL
       }
 
-      private$.write_data()
+      if (private$.verbose) {
+        cli::cli_alert_success("All collection have been dropped")
+      }
+
+      if (private$.auto_commit) {
+        private$.write_data()
+      }
+
+      invisible(self)
 
     },
 
@@ -278,10 +444,19 @@ rlowdb <- R6::R6Class(
 
     clear = function(collection) {
       if (!collection %in% names(private$.data)) {
-        stop(sprintf("Error: Collection '%s' does not exist.", collection))
+        rlang::abort(sprintf("Error: Collection '%s' does not exist.", collection))
       }
       private$.data[[collection]] <- list()
-      private$.write_data()
+
+      if (private$.verbose) {
+        cli::cli_alert_success("'{collection}' collection successfully cleared")
+      }
+
+      if (private$.auto_commit) {
+        private$.write_data()
+      }
+
+      invisible(self)
     },
 
     #' @description Count the number of records in a collection
@@ -296,7 +471,7 @@ rlowdb <- R6::R6Class(
     count = function(collection) {
 
       if (!collection %in% names(private$.data)) {
-        stop(sprintf("Error: Collection '%s' does not exist.", collection))
+        rlang::abort(sprintf("Error: Collection '%s' does not exist.", collection))
       }
 
       count_collection <- length(private$.data[[collection]])
@@ -355,7 +530,7 @@ rlowdb <- R6::R6Class(
     exists_key = function(collection, key) {
 
       if (!collection %in% names(private$.data)) {
-        stop(sprintf("Error: Collection '%s' does not exist.", collection))
+        rlang::abort(sprintf("Error: Collection '%s' does not exist.", collection))
       }
 
       exists_key <- any(
@@ -410,18 +585,27 @@ rlowdb <- R6::R6Class(
     #' db$count("users")
     #' unlink("database.json")
 
-
     transaction = function(transaction_fn) {
       if (!is.function(transaction_fn)) {
-        stop("Error: 'transaction_fn' must be a function.")
+        rlang::abort("Error: 'transaction_fn' must be a function.")
       }
       original_data <- private$.data
       tryCatch({
         transaction_fn()
-        private$.write_data()
+
+        if (private$.verbose) {
+          cli::cli_alert_success("Transaction successfully operated")
+        }
+
+        if (private$.auto_commit) {
+          private$.write_data()
+        }
+
+        invisible(self)
+
       }, error = function(e) {
         private$.data <- original_data
-        stop(sprintf("Transaction failed: %s", e$message))
+        rlang::abort(sprintf("Transaction failed: %s", e$message))
       })
     },
 
@@ -429,19 +613,42 @@ rlowdb <- R6::R6Class(
     #' @param backup_path The path of the backup JSON file.
 
     restore = function(backup_path) {
+
       if (!file.exists(backup_path)) {
-        stop("Error: Backup file does not exist.")
+        rlang::abort("Error: Backup file does not exist.")
       }
 
-      private$.data <- jsonlite::fromJSON(backup_path, simplifyVector = FALSE)
-      private$.write_data()
+      private$.data <- yyjsonr::read_json_file(
+        backup_path,
+        opts = list(obj_of_arrs_to_df = FALSE, arr_of_objs_to_df = FALSE, df_missing_list_elem = FALSE)
+      )
+
+
+      if (private$.verbose) {
+        cli::cli_alert_success("Backup successfully restored from {backup_path}")
+      }
+
+      if (private$.auto_commit) {
+        private$.write_data()
+      }
+
+      invisible(self)
     },
 
     #' Allow users to quickly backup their database.
     #' @param backup_path The path of the backup JSON file
 
     backup = function(backup_path) {
-      jsonlite::write_json(private$.data, backup_path, pretty = TRUE, auto_unbox = TRUE)
+
+      yyjsonr::write_json_file(
+        private$.data,
+        backup_path,
+        list(pretty = private$.pretty, auto_unbox = TRUE)
+      )
+
+      if (private$.verbose) {
+        cli::cli_alert_success("Backup successfully created at {backup_path}")
+      }
     },
 
     #' @description
@@ -471,11 +678,11 @@ rlowdb <- R6::R6Class(
     #' unlink("database.json")
     search = function(collection, key, term, ignore.case = FALSE) {
       if (!self$exists_collection(collection)) {
-        stop(sprintf("Error: Collection '%s' does not exist.", collection))
+        rlang::abort(sprintf("Error: Collection '%s' does not exist.", collection))
       }
 
       if (!self$exists_key(collection, key)) {
-        stop(sprintf("Error: Key '%s' does not exist in collection '%s'.", key, collection))
+        rlang::abort(sprintf("Error: Key '%s' does not exist in collection '%s'.", key, collection))
       }
 
       matching_records <- purrr::keep(private$.data[[collection]], function(item) {
@@ -487,7 +694,7 @@ rlowdb <- R6::R6Class(
 
       })
 
-      return(matching_records)
+      matching_records
     },
 
     #' @description
@@ -511,7 +718,7 @@ rlowdb <- R6::R6Class(
     bulk_insert = function(collection, records) {
 
       if (!is.list(records) || length(records) == 0) {
-        stop("Error: 'records' must be a non-empty list of named lists.")
+        rlang::abort("Error: 'records' must be a non-empty list of named lists.")
       }
 
       valid_records <- sapply(records, function(record) {
@@ -519,7 +726,7 @@ rlowdb <- R6::R6Class(
       })
 
       if (!all(valid_records)) {
-        stop("Error: Each record must be a named list with valid field names.")
+        rlang::abort("Error: Each record must be a named list with valid field names.")
       }
 
       if (is.null(private$.data[[collection]])) {
@@ -527,27 +734,509 @@ rlowdb <- R6::R6Class(
       }
 
       private$.data[[collection]] <- c(private$.data[[collection]], records)
-      private$.write_data()
 
+      if (private$.verbose) {
+        cli::cli_alert_success(
+          "Bulk insertion successfull"
+        )
+      }
+
+      if (private$.auto_commit) {
+        private$.write_data()
+      }
+
+      invisible(self)
+
+    },
+
+    #' @description
+    #' Provides some useful information about the database
+    #'
+    status = function() {
+
+      db_exists <- FALSE
+
+      if (file.exists(private$.file_path)) {
+        db_exists <- TRUE
+      }
+
+      collections <- self$list_collections()
+
+      schema_msg <-  "No schema defined"
+
+      if (length(private$.schemas) > 0) {
+        schema_msg <- paste0(
+          "Schema defined for the collections ",
+          toString(names(private$.schemas)))
+      }
+
+      cli::cli_text("{.strong - database path:} {private$.file_path}")
+      cli::cli_text("{.strong - database exists:} {db_exists} ")
+      cli::cli_text("{.strong - auto_commit:} {private$.auto_commit}")
+      cli::cli_text("{.strong - verbose:} {private$.verbose}")
+      cli::cli_text("{.strong - collections:} {toString(collections)}")
+      cli::cli_text("{.strong - schemas:} {schema_msg}")
+
+    },
+
+    #' @description
+    #' Set the auto_commit value
+    #' @param auto_commit TRUE will update automatically the JSON
+    #' by each insertion/update/delete. If FALSE, you'll need to
+    #' use the commit method whenever you want to commit your changes
+    #' to the JSON DB.
+
+    set_auto_commit = function(auto_commit) {
+      private$.auto_commit <- auto_commit
+    },
+    #' @description
+    #' Set the verbose value.
+    #' @param verbose If TRUE, informative messages will be printed
+    #' to the console.
+    set_verbose = function(verbose) {
+      private$.verbose = verbose
+    },
+
+    #' @description
+    #' Allows you to rename an existing collection in the database.
+    #' It checks if the specified collection exists before attempting to rename it.
+    #' @param collection_name A character string representing the current name of the collection to be renamed.
+    #' @param new_collection_name A character string representing the new name for the collection.
+    #'
+    #' @examples
+    #' db <- rlowdb$new("database.json")
+    #' db$bulk_insert("users", list(
+    #'   list(id = 1, name = "Alice", age = 25),
+    #'   list(id = 2, name = "Bob", age = 32),
+    #'   list(id = 3, name = "Charlie", age = 40)
+    #' ))
+    #' db$list_collections()
+    #' db$rename_collection("users", "customers")
+    #' db$list_collections()
+    #' unlink("database.json")
+    #'
+    rename_collection = function(collection_name, new_collection_name) {
+      if (!collection_name %in% names(private$.data)) {
+        rlang::abort(sprintf("Error: Collection '%s' does not exist.", collection_name))
+      }
+
+      if (new_collection_name %in% names(private$.data)) {
+        rlang::abort(sprintf("Error: Collection '%s' already exists.", new_collection_name))
+      }
+
+      private$.data[[new_collection_name]] <- private$.data[[collection_name]]
+      private$.data[[collection_name]] <- NULL
+
+      if (private$.verbose) {
+        cli::cli_alert_success("collection '{collection_name}' successfully renamed to '{new_collection_name}'")
+      }
+
+      if (private$.auto_commit) {
+        private$.write_data()
+      }
+
+      invisible(self)
+    },
+
+    #' @description
+    #' Retrieves the names (keys) of all keys within a given collection.
+    #'
+    #' @param collection The collection name
+    #'
+    #' @return A character vector containing the unique keys (field names) present across all records in the collection.
+    #'
+    #' @examples
+    #' db <- rlowdb$new("database.json")
+    #' db$bulk_insert("users", list(
+    #'   list(id = 1, name = "Alice", age = 25),
+    #'   list(id = 2, name = "Bob", age = 32),
+    #'   list(id = 3, name = "Charlie")
+    #' ))
+    #' db$list_keys("users")
+    #' unlink("database.json")
+    #'
+    list_keys = function(collection) {
+      if (!collection %in% names(private$.data)) {
+        rlang::abort(sprintf("Error: Collection '%s' does not exist.", collection))
+      }
+
+      keys <- unique(unlist(purrr::map(private$.data[[collection]], names)))
+
+      keys
+    },
+
+    #' @description
+    #' Count Occurrences of a Key's Values in a Collection
+    #'
+    #' @param collection The collection name
+    #' @param key The key name
+    #' @return A table (a frequency count) of the values associated with the specified key,
+    #'   showing the number of occurrences of each unique value. If the key does not exist,
+    #'   an error is thrown.
+    #'
+    #' @examples
+    #' db <- rlowdb$new("database.json")
+    #' db$bulk_insert("users", list(
+    #'   list(id = 1, name = "Alice", age = 25),
+    #'   list(id = 2, name = "Bob", age = 32),
+    #'   list(id = 3, name = NA),
+    #'   list(id = 4, name = NA)
+    #' ))
+    #' db$count_values("users", "name")
+    #' unlink("database.json")
+    count_values = function(collection, key) {
+
+      if (!self$exists_collection(collection)) {
+        rlang::abort(sprintf("Error: Collection '%s' does not exist.", collection))
+      }
+
+      if (!self$exists_key(collection, key)) {
+        rlang::abort(sprintf("Error: Key '%s' does not exist in any record of the collection '%s'.", key, collection))
+      }
+
+      count <- sapply(private$.data[[collection]], function(x) {
+        if (is.null(x[[key]]) || is.na(x[[key]])) {
+          return(NA)
+        } else {
+          return(x[[key]])
+        }
+      })
+
+      table(count, useNA = "ifany")
+    },
+
+
+    #' @description
+    #' Add Default Values to Records in a Collection
+    #'
+    #' Ensures that all records in a collection have specific default values
+    #' for certain keys. If a key is missing, the default value is added.
+    #' Optionally, existing values can be replaced with defaults.
+    #'
+    #' @param collection The collection name.
+    #' @param defaults A named list of default values to add.
+    #' @param replace_existing Logical; if `TRUE`, replaces existing values with defaults.
+    #'   If `FALSE`, only adds missing keys. Defaults to `FALSE`.
+    #'
+    #' @return Updates the collection in place, ensuring consistency of data.
+    #'
+    #' @examples
+    #' db <- rlowdb$new("database.json")
+    #' db$bulk_insert("users", list(
+    #'   list(name = "Alice", age = 30),
+    #'   list(name = "Bob"),
+    #'   list(name = "Charlie", age = 25, role = "admin")
+    #' ))
+    #'
+    #' # Add defaults without replacing existing values
+    #' db$insert_default_values("users", list(role = "guest", active = TRUE))
+    #'
+    #' # Add defaults and replace existing values
+    #' db$insert_default_values("users", list(role = "guest", active = TRUE), replace_existing = TRUE)
+    #'
+    #' unlink("database.json")
+    insert_default_values = function(collection, defaults, replace_existing = FALSE) {
+      if (!self$exists_collection(collection)) {
+        rlang::abort(sprintf("Error: Collection '%s' does not exist.", collection))
+      }
+      if (!is.list(defaults) || is.null(names(defaults))) {
+        rlang::abort("Error: 'defaults' must be a named list.")
+      }
+
+      private$.data[[collection]] <- purrr::map(private$.data[[collection]], function(record) {
+        if (replace_existing) {
+          modifyList(record, defaults)
+        } else {
+          purrr::list_modify(defaults, !!!record)
+        }
+      })
+
+      if (private$.verbose) {
+        mode <- if (replace_existing) "overwritten" else "added (without overwriting)"
+        cli::cli_alert_success("Default values {mode} in collection '{collection}'")
+      }
+
+      if (private$.auto_commit) {
+        private$.write_data()
+      }
+
+      invisible(self)
+    },
+
+    #' @description
+    #' Clone an existing collection to a new collection with a different name.
+    #' This creates an exact copy of the original collection's records under the new name.
+    #'
+    #' @param from The name of the source collection to clone.
+    #' @param to The name of the new collection.
+    #' @param overwrite If FALSE (default), will abort if target collection exists.
+    #'        If TRUE, will overwrite existing target collection.
+    #'
+    #' @examples
+    #' db <- rlowdb$new("database.json")
+    #' db$insert("users", list(id = 1, name = "Alice"))
+    #' db$clone_collection("users", "users_backup")
+    #' db$list_collections()
+    #' unlink("database.json")
+    clone_collection = function(from, to) {
+
+      if (from == to) {
+        rlang::abort("Both collections have the same name")
+      }
+
+      if (!self$exists_collection(from)) {
+        rlang::abort(sprintf("Error: Source collection '%s' does not exist.", from))
+      }
+
+      private$.data[[to]] <- private$.data[[from]]
+
+      if (private$.verbose) {
+        cli::cli_alert_success(
+          "Collection '{from}' successfully cloned to '{to}'"
+        )
+      }
+
+      if (private$.auto_commit) {
+        private$.write_data()
+      }
+
+      invisible(self)
+    },
+
+    #' @description
+    #' Randomly sample records from a collection
+    #'
+    #' @param collection The name of the collection to sample from
+    #' @param n Number of records to sample. If n > collection size, returns all records with a warning.
+    #' @param replace Should sampling be with replacement? Default FALSE
+    #' @param seed Optional random seed for reproducible sampling
+    #' @return A list of sampled records
+    #'
+    #' @examples
+    #' db <- rlowdb$new("database.json")
+    #' db$insert("users", list(id = 1, name = "Alice"))
+    #' db$insert("users", list(id = 2, name = "Bob"))
+    #' db$insert("users", list(id = 3, name = "Charlie"))
+    #'
+    #' # Sample 2 records without replacement
+    #' db$sample_records("users", n = 2)
+    #'
+    #' # Sample with replacement
+    #' db$sample_records("users", n = 5, replace = TRUE)
+    #'
+    #' # Reproducible sampling with seed
+    #' db$sample_records("users", n = 2, seed = 123)
+    #' unlink("database.json")
+
+    sample_records = function(collection, n = 1, replace = FALSE, seed = NULL) {
+
+      if (!self$exists_collection(collection)) {
+        rlang::abort(sprintf("Error: Collection '%s' does not exist.", collection))
+      }
+
+      if (!is.numeric(n) || n < 1) {
+        rlang::abort("Error: 'n' must be a positive integer.")
+      }
+
+      collection_size <- self$count(collection)
+
+      if (n > collection_size && !replace) {
+        warning(sprintf(
+          "Requested sample size (%d) is larger than collection size (%d) with replace = FALSE. Returning all records.",
+          n, collection_size
+        ))
+        n <- collection_size
+      }
+
+      if (!is.null(seed)) {
+        set.seed(seed)
+      }
+
+      sample_indices <- sample(
+        seq_along(private$.data[[collection]]),
+        size = n,
+        replace = replace
+      )
+
+      sampled_records <- private$.data[[collection]][sample_indices]
+
+      if (private$.verbose) {
+        cli::cli_alert_info(
+          "Sampled {n} record{?s} from '{collection}' (collection size: {collection_size})"
+        )
+      }
+
+      sampled_records
+    },
+
+    #' @description
+    #' Set schema for a collection to validate future inserts/updates
+    #'
+    #' @param collection The collection name
+    #' @param schema A named list where:
+    #'   - Names are field names
+    #'   - Values can be:
+    #'     * A type string ("character", "numeric", etc.)
+    #'     * A function that returns TRUE/FALSE
+    #'     * A vector of allowed values
+    #'     * NULL to make the field optional
+    #'
+    #' @examples
+    #' db <- rlowdb$new("database.json")
+    #'
+    #' # Define schema before inserting
+    #' db$set_schema("users", list(
+    #'   id = "numeric",
+    #'   name = function(x) is.character(x) && nchar(x) > 0,
+    #'   age = function(x) is.numeric(x) && x >= 0,
+    #'   email = NULL  # Optional
+    #' ))
+    #'
+    #' # This will fail validation:
+    #' try(db$insert("users", list(id = "1", name = "")))
+    set_schema = function(collection, schema) {
+
+      if ((!is.null(schema) && !is.list(schema)) || (length(schema) > 0 && is.null(names(schema)))) {
+        rlang::abort("Schema must be a named list")
+      }
+
+      if (is.null(private$.schemas)) {
+        private$.schemas <- list()
+      }
+
+      private$.schemas[[collection]] <- schema
+
+      if (private$.verbose) {
+        cli::cli_alert_success(
+          "Schema set for collection '{collection}' with {length(schema)} field{?s}"
+        )
+      }
+
+      invisible(self)
+    },
+
+    #' @description
+    #' Retrieve the schema for a specific collection
+    #'
+    #' @param collection The collection name
+    #' @return list
+    #'
+
+    get_schema = function(collection) {
+
+      if (!self$exists_collection(collection)) {
+        rlang::abort(sprintf("Error: Collection '%s' does not exist.", collection))
+      }
+      private$.schemas[[collection]]
     }
 
   ),
 
   private = list(
-
     .file_path = NULL,
+    .auto_commit = NULL,
+    .verbose = NULL,
+    .pretty = FALSE,
+    .schemas = NULL,
+    .default_values = NULL,
     .data = NULL,
+    .validate_record = function(collection, record) {
+
+      if (is.null(private$.schemas) || is.null(private$.schemas[[collection]])) {
+        return(TRUE)
+      }
+
+      schema <- private$.schemas[[collection]]
+
+      errors <- list()
+
+      for (field in names(schema)) {
+        rule <- schema[[field]]
+        value <- record[[field]]
+
+        if (is.null(rule) && !field %in% names(record)) next
+
+        if (!field %in% names(record)) {
+          errors <- append(errors, sprintf("Missing required field: '%s'", field))
+          next
+        }
+
+        if (is.character(rule) && length(rule) == 1) {
+          expected_type <- rule
+          if (!class(value)[1] %in% expected_type) {
+            errors <- append(errors, sprintf(
+              "Key '%s' must be type '%s' (got '%s')",
+              field, expected_type, class(value)[1]
+            ))
+          }
+        }
+
+        else if (is.function(rule)) {
+          if (!isTRUE(rule(value))) {
+            errors <- append(errors, sprintf(
+              "Key '%s' failed validation", field
+            ))
+          }
+        }
+
+        else if (is.vector(rule) && length(rule) > 1) {
+          if (!value %in% rule) {
+            errors <- append(errors, sprintf(
+              "Key '%s' must be one of: %s",
+              field, paste(rule, collapse = ", ")
+            ))
+          }
+        }
+      }
+
+      if (length(errors) > 0) {
+        error_msg <- paste(
+          sprintf("Schema validation failed for collection '%s':", collection),
+          paste("-", errors, collapse = "\n"),
+          sep = "\n"
+        )
+        rlang::abort(error_msg)
+      }
+
+      TRUE
+    },
 
     .read_data = function() {
       if (file.exists(private$.file_path)) {
-        private$.data <- jsonlite::fromJSON(private$.file_path, simplifyVector = FALSE)
+
+        private$.data <- yyjsonr::read_json_file(
+          private$.file_path,
+          opts = list(obj_of_arrs_to_df = FALSE, arr_of_objs_to_df = FALSE, df_missing_list_elem = FALSE)
+        )
+
+        if (private$.verbose) {
+          cli::cli_alert_info(
+            "JSON DB already available, reading from {private$.file_path}"
+          )
+        }
+
       } else {
         private$.data <- list()
+
+        if (private$.verbose) {
+          cli::cli_alert_info(
+            "JSON DB not found, initializing empty data object"
+          )
+        }
       }
     },
 
     .write_data = function() {
-      jsonlite::write_json(private$.data, private$.file_path, pretty = TRUE, auto_unbox = TRUE)
+
+      yyjsonr::write_json_file(
+        private$.data,
+        private$.file_path,
+        list(pretty = private$.pretty, auto_unbox = TRUE)
+      )
+
+     if (private$.verbose) {
+        cli::cli_alert_success("{basename(private$.file_path)} successfully updated")
+      }
     },
 
     .ensure_key = function(key) {
@@ -558,10 +1247,10 @@ rlowdb <- R6::R6Class(
 
     .find_index_by_key = function(collection, key, value) {
       if (!collection %in% names(private$.data)) {
-        stop(sprintf("Error: Collection '%s' does not exist.", collection))
+        rlang::abort(sprintf("Error: Collection '%s' does not exist.", collection))
       }
       if (!any(sapply(private$.data[[collection]], function(item) key %in% names(item)))) {
-        stop(sprintf("Error: Key '%s' does not exist in collection '%s'.", key, collection))
+        rlang::abort(sprintf("Error: Key '%s' does not exist in collection '%s'.", key, collection))
       }
       which(sapply(private$.data[[collection]], function(item) item[[key]] == value))
     }

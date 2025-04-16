@@ -1,8 +1,10 @@
-9d0b4e73eb37d3875a803400ac2c4bf7 *DESCRIPTION
+c7e763aaf5c9510a30f9e63d65e250ae *DESCRIPTION
 9104a23d1393028247314f24841cc202 *LICENSE
-d27437766b32f3897fa5c8b7d6667044 *NAMESPACE
-638d43b790886d6fb5e54a7cdd0e87b1 *R/main.R
-63fc58cc58ec49963046befc8e9dc511 *README.md
-497f683fe77a0d6c616761dbc932913a *man/rlowdb.Rd
+28bceea2366134ae18a538475bf7cdf2 *NAMESPACE
+ec77e95c57aafae72fdb6a66f34a637f *NEWS.md
+b411edafb5de618372c4e5f076ada853 *R/main.R
+e644d3b9a30fe5d21b4bdaf080d95172 *README.md
+e1b4e9d807bf3ea9d897b94aafebaa9b *man/figures/rlowdb_cute.png
+4aa5dd2dd4401f01373106e6319cc45d *man/rlowdb.Rd
 da00a42c1e86dcabaed326ea0ea884fd *tests/testthat.R
-5fb3fc882302940d56e07751818f87d4 *tests/testthat/test-main.R
+8e4be2eea94f9ae6f697ac5fe34c4de2 *tests/testthat/test-main.R

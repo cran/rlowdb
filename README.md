@@ -1,13 +1,22 @@
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
 
-# rlowdb
+# rlowdb <a><img src='man/figures/rlowdb_cute.png' align="right" height="200" /></a>
 
 <!-- badges: start -->
 
 [![Codecov test
 coverage](https://codecov.io/gh/feddelegrand7/rlowdb/branch/main/graph/badge.svg)](https://app.codecov.io/gh/feddelegrand7/rlowdb?branch=main)
 [![R-CMD-check](https://github.com/feddelegrand7/rlowdb/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/feddelegrand7/rlowdb/actions/workflows/R-CMD-check.yaml)
+[![CRAN
+status](https://www.r-pkg.org/badges/version/rlowdb)](https://CRAN.R-project.org/package=rlowdb)
+[![R
+badge](https://img.shields.io/badge/Build%20with-♥%20and%20R-blue)](https://github.com/feddelegrand7/rlowdb)
+[![metacran
+downloads](https://cranlogs.r-pkg.org/badges/rlowdb)](https://cran.r-project.org/package=rlowdb)
+[![metacran
+downloads](https://cranlogs.r-pkg.org/badges/grand-total/rlowdb)](https://cran.r-project.org/package=rlowdb)
+
 <!-- badges: end -->
 
 `rlowdb` is a lightweight, JSON-based database for R, inspired by
@@ -26,8 +35,13 @@ structured data without the need for a full database system.
 
 ## Installation
 
-`rlowdb` is not yet available on CRAN, but you can install it from
-GitHub:
+You can install `rlowdb` from `CRAN` with:
+
+``` r
+install.packages("rlowdb")
+```
+
+You can also install the development version from `Github` with:
 
 ``` r
 devtools::install_github("feddelegrand7/rlowdb")
@@ -57,7 +71,7 @@ Add records to a collection:
 ``` r
 db$insert(
   collection = "users", 
-  record = list(id = 1, name = "Alice", age = 30)
+  record = list(id = 1, name = "Ali", age = 30)
 )
 db$insert(
   collection = "users", 
@@ -68,6 +82,34 @@ db$insert(
   collection = "users", 
   record = list(id = 3, name = "Alice", age = 30)
 )
+```
+
+### Transaction
+
+Using the `transaction` method, you can insert a set of records and if
+an error occurs in the process, a `rollback` will be triggered to
+restore the initial state of the database. Note that the insertion has
+to be operated using a function:
+
+``` r
+db$count("users")
+#> [1] 3
+```
+
+``` r
+db$transaction(function() {
+    db$insert("users", list(name = "Zlatan", age = 40))
+    db$insert("users", list(name = "Neymar", age = 28))
+    stop("some errors")
+    db$insert("users", list(name = "Ronaldo", age = 30))
+})
+#> Error in `value[[3L]]()`:
+#> ! Transaction failed: some errors
+```
+
+``` r
+db$count("users")
+#> [1] 3
 ```
 
 ### Retrieving Data
@@ -82,7 +124,7 @@ db$get_data()
 #> [1] 1
 #> 
 #> $users[[1]]$name
-#> [1] "Alice"
+#> [1] "Ali"
 #> 
 #> $users[[1]]$age
 #> [1] 30
@@ -110,6 +152,50 @@ db$get_data()
 #> [1] 30
 ```
 
+Get data from a specific collection:
+
+``` r
+db$get_data_collection("users")
+#> [[1]]
+#> [[1]]$id
+#> [1] 1
+#> 
+#> [[1]]$name
+#> [1] "Ali"
+#> 
+#> [[1]]$age
+#> [1] 30
+#> 
+#> 
+#> [[2]]
+#> [[2]]$id
+#> [1] 2
+#> 
+#> [[2]]$name
+#> [1] "Bob"
+#> 
+#> [[2]]$age
+#> [1] 25
+#> 
+#> 
+#> [[3]]
+#> [[3]]$id
+#> [1] 3
+#> 
+#> [[3]]$name
+#> [1] "Alice"
+#> 
+#> [[3]]$age
+#> [1] 30
+```
+
+Get data from a specific key:
+
+``` r
+db$get_data_key("users", "name")
+#> [1] "Ali"   "Bob"   "Alice"
+```
+
 Find a specific record:
 
 ``` r
@@ -119,7 +205,7 @@ db$find(collection = "users", key = "id", value = 1)
 #> [1] 1
 #> 
 #> [[1]]$name
-#> [1] "Alice"
+#> [1] "Ali"
 #> 
 #> [[1]]$age
 #> [1] 30
@@ -144,7 +230,7 @@ db$get_data()
 #> [1] 1
 #> 
 #> $users[[1]]$name
-#> [1] "Alice"
+#> [1] "Ali"
 #> 
 #> $users[[1]]$age
 #> [1] 31
@@ -173,7 +259,8 @@ db$get_data()
 ```
 
 The `upsert` methods allows you to update a record if it exists,
-otherwise, it will be inserted:
+otherwise, it will be inserted. Note that the collection and the key
+need to exist:
 
 ``` r
 db$upsert(
@@ -190,7 +277,7 @@ db$get_data()
 #> [1] 1
 #> 
 #> $users[[1]]$name
-#> [1] "Alice"
+#> [1] "Ali"
 #> 
 #> $users[[1]]$age
 #> [1] 25
@@ -233,7 +320,7 @@ db$get_data()
 #> [1] 1
 #> 
 #> $users[[1]]$name
-#> [1] "Alice"
+#> [1] "Ali"
 #> 
 #> $users[[1]]$age
 #> [1] 25
@@ -281,7 +368,7 @@ db$get_data()
 #> [1] 1
 #> 
 #> $users[[1]]$name
-#> [1] "Alice"
+#> [1] "Ali"
 #> 
 #> $users[[1]]$age
 #> [1] 25
@@ -309,6 +396,18 @@ db$get_data()
 #> [1] 30
 ```
 
+### Bulk Inserting
+
+You can insert many records at once using the `buld_insert` method:
+
+``` r
+db$bulk_insert("users", list(
+    list(id = 1, name = "Antoine", age = 52),
+    list(id = 2, name = "Omar", age = 23),
+    list(id = 3, name = "Nabil", age = 41)
+))
+```
+
 ### Querying Data
 
 Find users older than 25:
@@ -324,6 +423,28 @@ db$query(collection = "users", condition = "age > 25")
 #> 
 #> [[1]]$age
 #> [1] 30
+#> 
+#> 
+#> [[2]]
+#> [[2]]$id
+#> [1] 1
+#> 
+#> [[2]]$name
+#> [1] "Antoine"
+#> 
+#> [[2]]$age
+#> [1] 52
+#> 
+#> 
+#> [[3]]
+#> [[3]]$id
+#> [1] 3
+#> 
+#> [[3]]$name
+#> [1] "Nabil"
+#> 
+#> [[3]]$age
+#> [1] 41
 ```
 
 Query with multiple conditions:
@@ -350,6 +471,102 @@ db$query(collection = "users", condition = "age > 20 & id > 1")
 #> 
 #> [[2]]$age
 #> [1] 30
+#> 
+#> 
+#> [[3]]
+#> [[3]]$id
+#> [1] 2
+#> 
+#> [[3]]$name
+#> [1] "Omar"
+#> 
+#> [[3]]$age
+#> [1] 23
+#> 
+#> 
+#> [[4]]
+#> [[4]]$id
+#> [1] 3
+#> 
+#> [[4]]$name
+#> [1] "Nabil"
+#> 
+#> [[4]]$age
+#> [1] 41
+```
+
+### Filter Data
+
+The `filter` method allows you to apply a predicate function (a function
+that returns `TRUE` or `FALSE`) in order to get a specific set of
+records:
+
+``` r
+db$filter("users", function(x) {
+  x$age > 30
+})
+#> [[1]]
+#> [[1]]$id
+#> [1] 1
+#> 
+#> [[1]]$name
+#> [1] "Antoine"
+#> 
+#> [[1]]$age
+#> [1] 52
+#> 
+#> 
+#> [[2]]
+#> [[2]]$id
+#> [1] 3
+#> 
+#> [[2]]$name
+#> [1] "Nabil"
+#> 
+#> [[2]]$age
+#> [1] 41
+```
+
+### Searching Data
+
+The `search` method allows you to search within `character` fields a
+specific record. You can also use `regex`:
+
+``` r
+db$search("users", "name", "^Ali", ignore.case = FALSE)
+#> [[1]]
+#> [[1]]$id
+#> [1] 1
+#> 
+#> [[1]]$name
+#> [1] "Ali"
+#> 
+#> [[1]]$age
+#> [1] 25
+#> 
+#> 
+#> [[2]]
+#> [[2]]$id
+#> [1] 3
+#> 
+#> [[2]]$name
+#> [1] "Alice"
+#> 
+#> [[2]]$age
+#> [1] 30
+```
+
+``` r
+db$search("users", "name", "alice", ignore.case = TRUE)
+#> [[1]]
+#> [[1]]$id
+#> [1] 3
+#> 
+#> [[1]]$name
+#> [1] "Alice"
+#> 
+#> [[1]]$age
+#> [1] 30
 ```
 
 ### Listing the collections
@@ -369,7 +586,7 @@ has:
 
 ``` r
 db$count(collection = "users") 
-#> [1] 3
+#> [1] 6
 ```
 
 ### Check if exists
@@ -410,6 +627,21 @@ db$exists_value(
 #> [1] FALSE
 ```
 
+### DB status
+
+Using the `status` method, you can at each time get some valuable
+information about the state of your `DB`:
+
+``` r
+db$status()
+#> - database path: DB.json
+#> - database exists: TRUE
+#> - auto_commit: TRUE
+#> - verbose: FALSE
+#> - collections: users
+#> - schemas: No schema defined
+```
+
 ### Clear, Drop Data
 
 It is possible to `clear` a collection. This will remove all the
@@ -428,7 +660,7 @@ db$get_data()
 #> [1] 1
 #> 
 #> $users[[1]]$name
-#> [1] "Alice"
+#> [1] "Ali"
 #> 
 #> $users[[1]]$age
 #> [1] 25
@@ -454,6 +686,39 @@ db$get_data()
 #> 
 #> $users[[3]]$age
 #> [1] 30
+#> 
+#> 
+#> $users[[4]]
+#> $users[[4]]$id
+#> [1] 1
+#> 
+#> $users[[4]]$name
+#> [1] "Antoine"
+#> 
+#> $users[[4]]$age
+#> [1] 52
+#> 
+#> 
+#> $users[[5]]
+#> $users[[5]]$id
+#> [1] 2
+#> 
+#> $users[[5]]$name
+#> [1] "Omar"
+#> 
+#> $users[[5]]$age
+#> [1] 23
+#> 
+#> 
+#> $users[[6]]
+#> $users[[6]]$id
+#> [1] 3
+#> 
+#> $users[[6]]$name
+#> [1] "Nabil"
+#> 
+#> $users[[6]]$age
+#> [1] 41
 #> 
 #> 
 #> 
@@ -493,7 +758,7 @@ db$get_data()
 #> [1] 1
 #> 
 #> $users[[1]]$name
-#> [1] "Alice"
+#> [1] "Ali"
 #> 
 #> $users[[1]]$age
 #> [1] 25
@@ -519,6 +784,39 @@ db$get_data()
 #> 
 #> $users[[3]]$age
 #> [1] 30
+#> 
+#> 
+#> $users[[4]]
+#> $users[[4]]$id
+#> [1] 1
+#> 
+#> $users[[4]]$name
+#> [1] "Antoine"
+#> 
+#> $users[[4]]$age
+#> [1] 52
+#> 
+#> 
+#> $users[[5]]
+#> $users[[5]]$id
+#> [1] 2
+#> 
+#> $users[[5]]$name
+#> [1] "Omar"
+#> 
+#> $users[[5]]$age
+#> [1] 23
+#> 
+#> 
+#> $users[[6]]
+#> $users[[6]]$id
+#> [1] 3
+#> 
+#> $users[[6]]$name
+#> [1] "Nabil"
+#> 
+#> $users[[6]]$age
+#> [1] 41
 #> 
 #> 
 #> 
@@ -537,7 +835,7 @@ db$get_data()
 #> [1] 1
 #> 
 #> $users[[1]]$name
-#> [1] "Alice"
+#> [1] "Ali"
 #> 
 #> $users[[1]]$age
 #> [1] 25
@@ -563,6 +861,39 @@ db$get_data()
 #> 
 #> $users[[3]]$age
 #> [1] 30
+#> 
+#> 
+#> $users[[4]]
+#> $users[[4]]$id
+#> [1] 1
+#> 
+#> $users[[4]]$name
+#> [1] "Antoine"
+#> 
+#> $users[[4]]$age
+#> [1] 52
+#> 
+#> 
+#> $users[[5]]
+#> $users[[5]]$id
+#> [1] 2
+#> 
+#> $users[[5]]$name
+#> [1] "Omar"
+#> 
+#> $users[[5]]$age
+#> [1] 23
+#> 
+#> 
+#> $users[[6]]
+#> $users[[6]]$id
+#> [1] 3
+#> 
+#> $users[[6]]$name
+#> [1] "Nabil"
+#> 
+#> $users[[6]]$age
+#> [1] 41
 ```
 
 Finally, `drop_all` will drop all the `collections` within your `DB`:
@@ -571,6 +902,24 @@ Finally, `drop_all` will drop all the `collections` within your `DB`:
 db$drop_all()
 db$get_data()
 #> named list()
+```
+
+### Creating a Backup
+
+You can create at any time a backup for your database using the `backup`
+method:
+
+``` r
+db$backup("DB_backup.json")
+```
+
+### Restoring a database
+
+You can restore a backup database or any preexisting DB using the
+`restore` method:
+
+``` r
+db$restore("DB_backup.json")
 ```
 
 ### Error Handling
@@ -586,7 +935,8 @@ db$update(
   value = 1, 
   new_data = list(age = 40)
 )  
-#> Error in private$.find_index_by_key(collection, key, value): Error: Collection 'nonexistant' does not exist.
+#> Error in `private$.find_index_by_key()` at rlowdb/R/main.R:207:7:
+#> ! Error: Collection 'nonexistant' does not exist.
 ```
 
 ### Future Features

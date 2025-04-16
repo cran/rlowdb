@@ -21,10 +21,32 @@ db$get_data()
 unlink("database.json")
 
 ## ------------------------------------------------
-## Method `rlowdb$insert`
+## Method `rlowdb$get_data_collection`
 ## ------------------------------------------------
 
 db <- rlowdb$new("database.json")
+db$insert("users", list(id = 1, name = "Alice"))
+db$get_data_collection("users")
+unlink("database.json")
+
+## ------------------------------------------------
+## Method `rlowdb$get_data_key`
+## ------------------------------------------------
+
+db <- rlowdb$new("database.json")
+db$insert("users", list(id = 1, name = "Alice"))
+db$insert("users", list(id = 2, name = "Omar"))
+db$get_data_key("users", "name")
+unlink("database.json")
+
+## ------------------------------------------------
+## Method `rlowdb$insert`
+## ------------------------------------------------
+
+db <- rlowdb$new("database.json", default_values = list(
+  "users" = list("active" = TRUE)
+ )
+)
 db$insert("users", list(id = 1, name = "Alice"))
 unlink("database.json")
 
@@ -227,12 +249,124 @@ db$bulk_insert("users", list(
 ))
 db$count("users")
 unlink("database.json")
+
+## ------------------------------------------------
+## Method `rlowdb$rename_collection`
+## ------------------------------------------------
+
+db <- rlowdb$new("database.json")
+db$bulk_insert("users", list(
+  list(id = 1, name = "Alice", age = 25),
+  list(id = 2, name = "Bob", age = 32),
+  list(id = 3, name = "Charlie", age = 40)
+))
+db$list_collections()
+db$rename_collection("users", "customers")
+db$list_collections()
+unlink("database.json")
+
+
+## ------------------------------------------------
+## Method `rlowdb$list_keys`
+## ------------------------------------------------
+
+db <- rlowdb$new("database.json")
+db$bulk_insert("users", list(
+  list(id = 1, name = "Alice", age = 25),
+  list(id = 2, name = "Bob", age = 32),
+  list(id = 3, name = "Charlie")
+))
+db$list_keys("users")
+unlink("database.json")
+
+
+## ------------------------------------------------
+## Method `rlowdb$count_values`
+## ------------------------------------------------
+
+db <- rlowdb$new("database.json")
+db$bulk_insert("users", list(
+  list(id = 1, name = "Alice", age = 25),
+  list(id = 2, name = "Bob", age = 32),
+  list(id = 3, name = NA),
+  list(id = 4, name = NA)
+))
+db$count_values("users", "name")
+unlink("database.json")
+
+## ------------------------------------------------
+## Method `rlowdb$insert_default_values`
+## ------------------------------------------------
+
+db <- rlowdb$new("database.json")
+db$bulk_insert("users", list(
+  list(name = "Alice", age = 30),
+  list(name = "Bob"),
+  list(name = "Charlie", age = 25, role = "admin")
+))
+
+# Add defaults without replacing existing values
+db$insert_default_values("users", list(role = "guest", active = TRUE))
+
+# Add defaults and replace existing values
+db$insert_default_values("users", list(role = "guest", active = TRUE), replace_existing = TRUE)
+
+unlink("database.json")
+
+## ------------------------------------------------
+## Method `rlowdb$clone_collection`
+## ------------------------------------------------
+
+db <- rlowdb$new("database.json")
+db$insert("users", list(id = 1, name = "Alice"))
+db$clone_collection("users", "users_backup")
+db$list_collections()
+unlink("database.json")
+
+## ------------------------------------------------
+## Method `rlowdb$sample_records`
+## ------------------------------------------------
+
+db <- rlowdb$new("database.json")
+db$insert("users", list(id = 1, name = "Alice"))
+db$insert("users", list(id = 2, name = "Bob"))
+db$insert("users", list(id = 3, name = "Charlie"))
+
+# Sample 2 records without replacement
+db$sample_records("users", n = 2)
+
+# Sample with replacement
+db$sample_records("users", n = 5, replace = TRUE)
+
+# Reproducible sampling with seed
+db$sample_records("users", n = 2, seed = 123)
+unlink("database.json")
+
+## ------------------------------------------------
+## Method `rlowdb$set_schema`
+## ------------------------------------------------
+
+db <- rlowdb$new("database.json")
+
+# Define schema before inserting
+db$set_schema("users", list(
+  id = "numeric",
+  name = function(x) is.character(x) && nchar(x) > 0,
+  age = function(x) is.numeric(x) && x >= 0,
+  email = NULL  # Optional
+))
+
+# This will fail validation:
+try(db$insert("users", list(id = "1", name = "")))
 }
 \section{Methods}{
 \subsection{Public methods}{
 \itemize{
 \item \href{#method-rlowdb-new}{\code{rlowdb$new()}}
+\item \href{#method-rlowdb-commit}{\code{rlowdb$commit()}}
 \item \href{#method-rlowdb-get_data}{\code{rlowdb$get_data()}}
+\item \href{#method-rlowdb-get_data_collection}{\code{rlowdb$get_data_collection()}}
+\item \href{#method-rlowdb-get_data_key}{\code{rlowdb$get_data_key()}}
 \item \href{#method-rlowdb-insert}{\code{rlowdb$insert()}}
 \item \href{#method-rlowdb-find}{\code{rlowdb$find()}}
 \item \href{#method-rlowdb-update}{\code{rlowdb$update()}}
@@ -253,6 +387,17 @@ unlink("database.json")
 \item \href{#method-rlowdb-backup}{\code{rlowdb$backup()}}
 \item \href{#method-rlowdb-search}{\code{rlowdb$search()}}
 \item \href{#method-rlowdb-bulk_insert}{\code{rlowdb$bulk_insert()}}
+\item \href{#method-rlowdb-status}{\code{rlowdb$status()}}
+\item \href{#method-rlowdb-set_auto_commit}{\code{rlowdb$set_auto_commit()}}
+\item \href{#method-rlowdb-set_verbose}{\code{rlowdb$set_verbose()}}
+\item \href{#method-rlowdb-rename_collection}{\code{rlowdb$rename_collection()}}
+\item \href{#method-rlowdb-list_keys}{\code{rlowdb$list_keys()}}
+\item \href{#method-rlowdb-count_values}{\code{rlowdb$count_values()}}
+\item \href{#method-rlowdb-insert_default_values}{\code{rlowdb$insert_default_values()}}
+\item \href{#method-rlowdb-clone_collection}{\code{rlowdb$clone_collection()}}
+\item \href{#method-rlowdb-sample_records}{\code{rlowdb$sample_records()}}
+\item \href{#method-rlowdb-set_schema}{\code{rlowdb$set_schema()}}
+\item \href{#method-rlowdb-get_schema}{\code{rlowdb$get_schema()}}
 \item \href{#method-rlowdb-clone}{\code{rlowdb$clone()}}
 }
 }
@@ -263,16 +408,49 @@ unlink("database.json")
 Initialize the database, loading data from a JSON file.
 If the file does not exist, an empty database is created.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{rlowdb$new(file_path)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{rlowdb$new(
+  file_path,
+  default_values = list(),
+  auto_commit = TRUE,
+  verbose = FALSE,
+  pretty = FALSE
+)}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
 \if{html}{\out{<div class="arguments">}}
 \describe{
 \item{\code{file_path}}{The path to the JSON file that stores the database.}
+
+\item{\code{default_values}}{A list of named list with the format:
+list(collection_name = list(key_name_1 = value, key_name_2 = value, ..., key_name_n = value))
+containing the default values that will be inserted each time the `insert` method is called.
+Note that the default_values will not override the existing records.
+Default is an empty list (`list()`).}
+
+\item{\code{auto_commit}}{whether to update the DB automatically each time
+there's an insertion, an update or a deletion. Defaults to TRUE.s
+Note that you can use the `commit` method to update the DB manually.}
+
+\item{\code{verbose}}{If TRUE, will print informative messages to the console.
+Defaults to FALSE}
+
+\item{\code{pretty}}{Use pretty = FALSE for compact JSON,
+which is more efficient for data transmission and storage. TRUE for a
+human readable format. Defaults to FALSE.}
 }
 \if{html}{\out{</div>}}
 }
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-rlowdb-commit"></a>}}
+\if{latex}{\out{\hypertarget{method-rlowdb-commit}{}}}
+\subsection{Method \code{commit()}}{
+Update the DB with the operated changes.
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{rlowdb$commit()}\if{html}{\out{</div>}}
+}
+
 }
 \if{html}{\out{<hr>}}
 \if{html}{\out{<a id="method-rlowdb-get_data"></a>}}
@@ -291,6 +469,71 @@ A list containing all database records.
 \preformatted{db <- rlowdb$new("database.json")
 db$insert("users", list(id = 1, name = "Alice"))
 db$get_data()
+unlink("database.json")
+}
+\if{html}{\out{</div>}}
+
+}
+
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-rlowdb-get_data_collection"></a>}}
+\if{latex}{\out{\hypertarget{method-rlowdb-get_data_collection}{}}}
+\subsection{Method \code{get_data_collection()}}{
+Retrieve data from a specific collection.
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{rlowdb$get_data_collection(collection)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{collection}}{The name of the collection}
+}
+\if{html}{\out{</div>}}
+}
+\subsection{Returns}{
+A list containing a specific collection's records.
+}
+\subsection{Examples}{
+\if{html}{\out{<div class="r example copy">}}
+\preformatted{db <- rlowdb$new("database.json")
+db$insert("users", list(id = 1, name = "Alice"))
+db$get_data_collection("users")
+unlink("database.json")
+}
+\if{html}{\out{</div>}}
+
+}
+
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-rlowdb-get_data_key"></a>}}
+\if{latex}{\out{\hypertarget{method-rlowdb-get_data_key}{}}}
+\subsection{Method \code{get_data_key()}}{
+Retrieve the records of a specific key within a collection
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{rlowdb$get_data_key(collection, key)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{collection}}{The name of the collection}
+
+\item{\code{key}}{The key name}
+}
+\if{html}{\out{</div>}}
+}
+\subsection{Returns}{
+A vector/list containing a specific key's records.
+}
+\subsection{Examples}{
+\if{html}{\out{<div class="r example copy">}}
+\preformatted{db <- rlowdb$new("database.json")
+db$insert("users", list(id = 1, name = "Alice"))
+db$insert("users", list(id = 2, name = "Omar"))
+db$get_data_key("users", "name")
 unlink("database.json")
 }
 \if{html}{\out{</div>}}
@@ -318,7 +561,10 @@ Insert a new record into a specified collection.
 }
 \subsection{Examples}{
 \if{html}{\out{<div class="r example copy">}}
-\preformatted{db <- rlowdb$new("database.json")
+\preformatted{db <- rlowdb$new("database.json", default_values = list(
+  "users" = list("active" = TRUE)
+ )
+)
 db$insert("users", list(id = 1, name = "Alice"))
 unlink("database.json")
 
@@ -955,6 +1201,364 @@ unlink("database.json")
 
 }
 
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-rlowdb-status"></a>}}
+\if{latex}{\out{\hypertarget{method-rlowdb-status}{}}}
+\subsection{Method \code{status()}}{
+Provides some useful information about the database
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{rlowdb$status()}\if{html}{\out{</div>}}
+}
+
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-rlowdb-set_auto_commit"></a>}}
+\if{latex}{\out{\hypertarget{method-rlowdb-set_auto_commit}{}}}
+\subsection{Method \code{set_auto_commit()}}{
+Set the auto_commit value
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{rlowdb$set_auto_commit(auto_commit)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{auto_commit}}{TRUE will update automatically the JSON
+by each insertion/update/delete. If FALSE, you'll need to
+use the commit method whenever you want to commit your changes
+to the JSON DB.}
+}
+\if{html}{\out{</div>}}
+}
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-rlowdb-set_verbose"></a>}}
+\if{latex}{\out{\hypertarget{method-rlowdb-set_verbose}{}}}
+\subsection{Method \code{set_verbose()}}{
+Set the verbose value.
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{rlowdb$set_verbose(verbose)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{verbose}}{If TRUE, informative messages will be printed
+to the console.}
+}
+\if{html}{\out{</div>}}
+}
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-rlowdb-rename_collection"></a>}}
+\if{latex}{\out{\hypertarget{method-rlowdb-rename_collection}{}}}
+\subsection{Method \code{rename_collection()}}{
+Allows you to rename an existing collection in the database.
+It checks if the specified collection exists before attempting to rename it.
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{rlowdb$rename_collection(collection_name, new_collection_name)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{collection_name}}{A character string representing the current name of the collection to be renamed.}
+
+\item{\code{new_collection_name}}{A character string representing the new name for the collection.}
+}
+\if{html}{\out{</div>}}
+}
+\subsection{Examples}{
+\if{html}{\out{<div class="r example copy">}}
+\preformatted{db <- rlowdb$new("database.json")
+db$bulk_insert("users", list(
+  list(id = 1, name = "Alice", age = 25),
+  list(id = 2, name = "Bob", age = 32),
+  list(id = 3, name = "Charlie", age = 40)
+))
+db$list_collections()
+db$rename_collection("users", "customers")
+db$list_collections()
+unlink("database.json")
+
+}
+\if{html}{\out{</div>}}
+
+}
+
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-rlowdb-list_keys"></a>}}
+\if{latex}{\out{\hypertarget{method-rlowdb-list_keys}{}}}
+\subsection{Method \code{list_keys()}}{
+Retrieves the names (keys) of all keys within a given collection.
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{rlowdb$list_keys(collection)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{collection}}{The collection name}
+}
+\if{html}{\out{</div>}}
+}
+\subsection{Returns}{
+A character vector containing the unique keys (field names) present across all records in the collection.
+}
+\subsection{Examples}{
+\if{html}{\out{<div class="r example copy">}}
+\preformatted{db <- rlowdb$new("database.json")
+db$bulk_insert("users", list(
+  list(id = 1, name = "Alice", age = 25),
+  list(id = 2, name = "Bob", age = 32),
+  list(id = 3, name = "Charlie")
+))
+db$list_keys("users")
+unlink("database.json")
+
+}
+\if{html}{\out{</div>}}
+
+}
+
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-rlowdb-count_values"></a>}}
+\if{latex}{\out{\hypertarget{method-rlowdb-count_values}{}}}
+\subsection{Method \code{count_values()}}{
+Count Occurrences of a Key's Values in a Collection
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{rlowdb$count_values(collection, key)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{collection}}{The collection name}
+
+\item{\code{key}}{The key name}
+}
+\if{html}{\out{</div>}}
+}
+\subsection{Returns}{
+A table (a frequency count) of the values associated with the specified key,
+  showing the number of occurrences of each unique value. If the key does not exist,
+  an error is thrown.
+}
+\subsection{Examples}{
+\if{html}{\out{<div class="r example copy">}}
+\preformatted{db <- rlowdb$new("database.json")
+db$bulk_insert("users", list(
+  list(id = 1, name = "Alice", age = 25),
+  list(id = 2, name = "Bob", age = 32),
+  list(id = 3, name = NA),
+  list(id = 4, name = NA)
+))
+db$count_values("users", "name")
+unlink("database.json")
+}
+\if{html}{\out{</div>}}
+
+}
+
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-rlowdb-insert_default_values"></a>}}
+\if{latex}{\out{\hypertarget{method-rlowdb-insert_default_values}{}}}
+\subsection{Method \code{insert_default_values()}}{
+Add Default Values to Records in a Collection
+
+Ensures that all records in a collection have specific default values
+for certain keys. If a key is missing, the default value is added.
+Optionally, existing values can be replaced with defaults.
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{rlowdb$insert_default_values(collection, defaults, replace_existing = FALSE)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{collection}}{The collection name.}
+
+\item{\code{defaults}}{A named list of default values to add.}
+
+\item{\code{replace_existing}}{Logical; if `TRUE`, replaces existing values with defaults.
+If `FALSE`, only adds missing keys. Defaults to `FALSE`.}
+}
+\if{html}{\out{</div>}}
+}
+\subsection{Returns}{
+Updates the collection in place, ensuring consistency of data.
+}
+\subsection{Examples}{
+\if{html}{\out{<div class="r example copy">}}
+\preformatted{db <- rlowdb$new("database.json")
+db$bulk_insert("users", list(
+  list(name = "Alice", age = 30),
+  list(name = "Bob"),
+  list(name = "Charlie", age = 25, role = "admin")
+))
+
+# Add defaults without replacing existing values
+db$insert_default_values("users", list(role = "guest", active = TRUE))
+
+# Add defaults and replace existing values
+db$insert_default_values("users", list(role = "guest", active = TRUE), replace_existing = TRUE)
+
+unlink("database.json")
+}
+\if{html}{\out{</div>}}
+
+}
+
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-rlowdb-clone_collection"></a>}}
+\if{latex}{\out{\hypertarget{method-rlowdb-clone_collection}{}}}
+\subsection{Method \code{clone_collection()}}{
+Clone an existing collection to a new collection with a different name.
+This creates an exact copy of the original collection's records under the new name.
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{rlowdb$clone_collection(from, to)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{from}}{The name of the source collection to clone.}
+
+\item{\code{to}}{The name of the new collection.}
+
+\item{\code{overwrite}}{If FALSE (default), will abort if target collection exists.
+If TRUE, will overwrite existing target collection.}
+}
+\if{html}{\out{</div>}}
+}
+\subsection{Examples}{
+\if{html}{\out{<div class="r example copy">}}
+\preformatted{db <- rlowdb$new("database.json")
+db$insert("users", list(id = 1, name = "Alice"))
+db$clone_collection("users", "users_backup")
+db$list_collections()
+unlink("database.json")
+}
+\if{html}{\out{</div>}}
+
+}
+
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-rlowdb-sample_records"></a>}}
+\if{latex}{\out{\hypertarget{method-rlowdb-sample_records}{}}}
+\subsection{Method \code{sample_records()}}{
+Randomly sample records from a collection
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{rlowdb$sample_records(collection, n = 1, replace = FALSE, seed = NULL)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{collection}}{The name of the collection to sample from}
+
+\item{\code{n}}{Number of records to sample. If n > collection size, returns all records with a warning.}
+
+\item{\code{replace}}{Should sampling be with replacement? Default FALSE}
+
+\item{\code{seed}}{Optional random seed for reproducible sampling}
+}
+\if{html}{\out{</div>}}
+}
+\subsection{Returns}{
+A list of sampled records
+}
+\subsection{Examples}{
+\if{html}{\out{<div class="r example copy">}}
+\preformatted{db <- rlowdb$new("database.json")
+db$insert("users", list(id = 1, name = "Alice"))
+db$insert("users", list(id = 2, name = "Bob"))
+db$insert("users", list(id = 3, name = "Charlie"))
+
+# Sample 2 records without replacement
+db$sample_records("users", n = 2)
+
+# Sample with replacement
+db$sample_records("users", n = 5, replace = TRUE)
+
+# Reproducible sampling with seed
+db$sample_records("users", n = 2, seed = 123)
+unlink("database.json")
+}
+\if{html}{\out{</div>}}
+
+}
+
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-rlowdb-set_schema"></a>}}
+\if{latex}{\out{\hypertarget{method-rlowdb-set_schema}{}}}
+\subsection{Method \code{set_schema()}}{
+Set schema for a collection to validate future inserts/updates
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{rlowdb$set_schema(collection, schema)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{collection}}{The collection name}
+
+\item{\code{schema}}{A named list where:
+- Names are field names
+- Values can be:
+  * A type string ("character", "numeric", etc.)
+  * A function that returns TRUE/FALSE
+  * A vector of allowed values
+  * NULL to make the field optional}
+}
+\if{html}{\out{</div>}}
+}
+\subsection{Examples}{
+\if{html}{\out{<div class="r example copy">}}
+\preformatted{db <- rlowdb$new("database.json")
+
+# Define schema before inserting
+db$set_schema("users", list(
+  id = "numeric",
+  name = function(x) is.character(x) && nchar(x) > 0,
+  age = function(x) is.numeric(x) && x >= 0,
+  email = NULL  # Optional
+))
+
+# This will fail validation:
+try(db$insert("users", list(id = "1", name = "")))
+}
+\if{html}{\out{</div>}}
+
+}
+
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-rlowdb-get_schema"></a>}}
+\if{latex}{\out{\hypertarget{method-rlowdb-get_schema}{}}}
+\subsection{Method \code{get_schema()}}{
+Retrieve the schema for a specific collection
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{rlowdb$get_schema(collection)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{collection}}{The collection name}
+}
+\if{html}{\out{</div>}}
+}
+\subsection{Returns}{
+list
+}
 }
 \if{html}{\out{<hr>}}
 \if{html}{\out{<a id="method-rlowdb-clone"></a>}}

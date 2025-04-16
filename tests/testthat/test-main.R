@@ -1,5 +1,12 @@
 library(testthat)
-library(jsonlite)
+
+test_that("Object is not created without a json file", {
+  test_db_file <- tempfile(fileext = ".csv")
+  expect_error({
+    db <- rlowdb$new(test_db_file)
+  },
+  regexp = "is not of JSON format")
+})
 
 test_db_file <- tempfile(fileext = ".json")
 db <- rlowdb$new(test_db_file)
@@ -16,6 +23,85 @@ test_that("Inserting records works correctly", {
   expect_true("posts" %in% names(data))
   expect_equal(length(data$posts), 2)
   expect_equal(data$posts[[1]]$id, 1)
+})
+
+test_that("Sample records works as expected", {
+
+  expect_error(
+    db$sample_records(collection = "non_existant", n = 1),
+    regexp = "Collection 'non_existant' does not exist"
+  )
+
+  expect_warning(
+    db$sample_records(collection = "posts", n = 3),
+    regexp = "Returning all records"
+  )
+
+  res1 <- db$sample_records(collection = "posts", n = 1, seed = 123)
+  res1_bis <- db$sample_records(collection = "posts", n = 1, seed = 123)
+
+  expect_equal(res1, res1_bis)
+
+  res2 <- db$sample_records(collection = "posts", n = 2, seed = 123)
+  expect_equal(length(res1), 1)
+  expect_equal(length(res2), 2)
+
+  res10 <- db$sample_records(collection = "posts", n = 10, seed = 123, replace = TRUE)
+  expect_equal(length(res10), 10)
+
+})
+
+test_that("get_collection_data works as expected", {
+
+  res <- db$get_data_collection("posts")
+
+  expect_equal(length(res), 2)
+  el <- res[[1]]
+  expect_equal(names(el), c("id", "title", "views"))
+
+  expect_error(
+    object = db$get_data_collection("non_existant"),
+    regexp = "Collection 'non_existant' does not exist"
+  )
+
+})
+
+test_that("get_data_key works as expected", {
+
+  res <- db$get_data_key("posts", "title")
+
+  expect_equal(length(res), 2)
+  expect_equal(res, c("LowDB in R", "Data Management"))
+
+  expect_error(
+    object = db$get_data_key("posts", "non_existant"),
+    regexp = "Key 'non_existant' does not exist in collection 'posts'"
+  )
+})
+
+test_that("auto_commit works as expected", {
+
+  db$set_auto_commit(auto_commit = FALSE)
+  db$insert("posts", list(id = 55, title = "LowDB in R", views = 100))
+
+  expect_equal(db$count("posts"), 3)
+
+  db$restore(test_db_file)
+
+  expect_equal(db$count("posts"), 2)
+
+  db$insert("posts", list(id = 55, title = "LowDB in R", views = 100))
+
+  db$commit()
+
+  db$restore(test_db_file)
+
+  expect_equal(db$count("posts"), 3)
+
+  db$set_auto_commit(auto_commit = TRUE)
+
+  db$delete("posts", "id", 55)
+
 })
 
 test_that("Finding records works correctly", {
@@ -173,6 +259,301 @@ test_that("filter method works as expected", {
 
 })
 
+test_that("count_value works as expected", {
+
+  db$insert("posts", list(id = 6, title = "Introduction to R", views = 200))
+  count <- db$count_values("posts", key = "title")
+
+  count_chr <- as.character(count)
+
+  expect_equal(count_chr, c("1", "2", "1", "1", "1"))
+
+  db$insert("posts", list(id = 6, title = "Introduction to R", views = 200))
+  db$insert("posts", list(id = 6, title = "Shiny for Python", views = 200))
+  count <- db$count_values("posts", key = "title")
+
+  count_chr <- as.character(count)
+
+  expect_equal(count_chr, c("1", "3", "1", "1", "2"))
+
+})
+
+test_that("list and rename collection work as expected", {
+
+  collection <- db$list_collections()
+
+  expect_equal(collection, "posts")
+
+  expect_length(collection, 1)
+
+  db$rename_collection("posts", "books")
+
+  collection <- db$list_collections()
+
+  expect_equal(collection, "books")
+
+  expect_length(collection, 1)
+
+  expect_error(
+    db$rename_collection("nonexistant", "new"),
+    regexp = "Collection 'nonexistant' does not exist"
+  )
+
+})
+
+test_that("list_keys works as expected", {
+
+  keys <- db$list_keys("books")
+
+  expect_equal(
+    keys,
+    c("id", "title", "views")
+  )
+
+  db$insert("books", list(
+    id = 32,
+    title = "Introduction to R",
+    views = 200,
+    license = "MIT"
+  ))
+
+  keys <- db$list_keys("books")
+
+  expect_equal(
+    keys,
+    c("id", "title", "views", "license")
+  )
+})
+
+test_that("insert_default_values works correctly", {
+
+  db$bulk_insert("users", list(
+    list(name = "Alice", age = 30),
+    list(name = "Bob"),
+    list(name = "Charlie", age = 25, role = "admin")
+  ))
+
+  keys <- db$list_keys("users")
+
+  expect_equal(keys, c("name", "age", "role"))
+
+  db$insert_default_values("users", list(role = "guest", active = TRUE), replace_existing = FALSE)
+
+  keys <- db$list_keys("users")
+
+  expect_equal(keys, c("role", "active", "name", "age"))
+
+  users <- db$get_data()[["users"]]
+
+  alice <- users[[1]]
+  bob <- users[[2]]
+  charlie <- users[[3]]
+
+  expect_true(alice$role == "guest")
+  expect_true(alice$active == TRUE)
+
+  expect_true(bob$role == "guest")
+  expect_true(bob$active == TRUE)
+
+  expect_true(charlie$role == "admin")
+  expect_true(charlie$active == TRUE)
+
+  db$insert_default_values("users", list(role = "guest", active = TRUE), replace_existing = TRUE)
+
+  users <- db$get_data()[["users"]]
+
+  charlie <- users[[3]]
+
+  expect_true(charlie$role == "guest")
+
+  db$insert_default_values("users", list(active = FALSE), replace_existing = FALSE)
+
+  users <- db$get_data()[["users"]]
+
+  expect_true(users[[1]]$active == TRUE)
+  expect_true(users[[2]]$active == TRUE)
+  expect_true(users[[3]]$active == TRUE)
+
+  db$insert("users", list(name = "David"))
+
+  db$insert_default_values("users", list(role = "guest", active = TRUE), replace_existing = FALSE)
+
+  users <- db$get_data()[["users"]]
+
+  expect_true(users[[4]]$role == "guest")
+  expect_true(users[[4]]$active == TRUE)
+  expect_true(users[[4]]$name == "David")
+
+})
+
+test_that("default_values works as expected", {
+
+  db_without_defaults <-  rlowdb$new("db2.json")
+
+  db_with_defaults <- rlowdb$new("db1.json", default_values = list(
+    "users" = list("active" = TRUE),
+    "readers" = list("minimal_age" = 18)
+  ))
+
+  db_without_defaults$insert("users", list(id = 1, name = "Alice"))
+
+  db_with_defaults$insert("users", list(id = 1, name = "Alice"))
+
+  expect_equal(db_without_defaults$list_keys("users"), c("id", "name"))
+
+  expect_equal(db_with_defaults$list_keys("users"), c("active", "id", "name"))
+
+  expect_false(db_with_defaults$exists_collection("readers"))
+
+  db_with_defaults$insert("readers", list(id = 1, name = "Fodil", age = 33))
+
+  expected_keys <- c("minimal_age", "id", "name", "age")
+
+  expect_equal(db_with_defaults$list_keys("readers"), expected_keys)
+
+  unlink("db1.json")
+  unlink("db2.json")
+
+})
+
+test_that("clone_collection works as expected", {
+
+  expect_error(
+    db$clone_collection(from = "users", "users"),
+    regexp = "Both collections have the same name"
+  )
+
+  db$clone_collection(from = "users", "users_backup")
+
+  expect_equal(
+    db$list_collections(),
+    c("books", "users", "users_backup")
+  )
+
+  expect_equal(
+    db$get_data_collection("users"),
+    db$get_data_collection("users_backup")
+  )
+
+})
+
+test_that("set_schema works as expected", {
+
+  db$set_schema("cars", list(
+    brand = function(x) is.character(x) && length(x) == 1,
+    max_speed = function(x) is.integer(x),
+    color = function(x) x %in% colors(),
+    year_of_distribution = NULL
+  ))
+
+  db$insert("cars", list(
+    brand = "VW",
+    max_speed = 160L,
+    color = "grey",
+    year_of_distribution = 2025
+  ))
+
+  res <- db$get_data_collection("cars")
+
+  expect_equal(length(res), 1)
+
+  expect_true(res[[1]]$brand == "VW")
+  expect_type(res[[1]]$brand, "character")
+  expect_true(res[[1]]$max_speed == 160)
+  expect_type(res[[1]]$max_speed, "integer")
+  expect_true(res[[1]]$color == "grey")
+  expect_type(res[[1]]$color, "character")
+  expect_true(res[[1]]$year_of_distribution == 2025)
+
+  db$insert("cars", list(
+    brand = "Ferrari",
+    max_speed = 280L,
+    color = "red"
+  ))
+
+  res <- db$get_data_collection("cars")
+  expect_equal(length(res), 2)
+
+  expect_true(is.null(res[[2]]$year_of_distribution))
+
+  expect_error({
+    db$insert("cars", list(
+      brand = "Ferrari",
+      max_speed = 280L,
+      color = "unknown_color"
+    ))
+  },
+  regexp = "Key 'color' failed validation"
+  )
+
+  expect_error({
+    db$insert("cars", list(
+      brand = "Ferrari",
+      max_speed = "280L",
+      color = "blue"
+    ))
+  },
+  regexp = "Key 'max_speed' failed validation"
+  )
+
+  expect_error({
+    db$insert("cars", list(
+      brand = 200,
+      max_speed = 280L,
+      color = "blue"
+    ))
+  },
+  regexp = "Key 'brand' failed validation"
+  )
+
+  expect_error({
+    db$insert("cars", list(
+      brand = "Ferrari",
+      max_speed = 280L,
+      color = NULL
+    ))
+  },
+  regexp = "Key 'color' failed validation"
+  )
+
+  expect_error({
+    db$insert("cars", list(
+      max_speed = 280L,
+      color = "green"
+    ))
+  },
+  regexp = "Missing required field: 'brand'"
+  )
+
+  expect_error({
+    db$insert("cars", list())
+  },
+  regexp = "'record' must be a named list with valid field names."
+  )
+
+  testthat::expect_equal(
+    names(db$get_schema("cars")),
+    c("brand", "max_speed", "color", "year_of_distribution")
+  )
+
+  db$set_schema("cars", NULL)
+
+  db$insert("cars", list(
+    max_speed = 280L,
+    color = "green"
+  ))
+
+  db$insert("cars", list(
+    max_speed = "200",
+    color = "nonexisting"
+  ))
+
+  res <- db$get_data_collection("cars")
+
+  expect_equal(length(res), 4)
+
+})
+
 test_that("clear works as expected", {
 
   db$insert("readers", list(name = "Fodil", city = "Hamburg"))
@@ -209,3 +590,6 @@ test_that("drop all works as expected", {
 })
 
 unlink(test_db_file)
+
+
+
